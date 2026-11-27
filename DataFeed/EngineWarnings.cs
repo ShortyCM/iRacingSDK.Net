@@ -12,6 +12,9 @@ namespace iRacingSDK
         EngineStalled = 0x08,
         PitSpeedLimiter = 0x10,
         RevLimiterActive = 0x20,
+        OilTempWarning = 0x40,
+        MandatoryRepairNeeded = 0x80,
+        OptionalRepairNeeded = 0x100,
     };
 
 }

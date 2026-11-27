@@ -33,6 +33,8 @@ namespace iRacingSDK
 		public int bufOffset;
 		[MarshalAs(UnmanagedType.ByValArray, SizeConst = 2)]
 		public int[] pad;
+
+		internal int TickCountBegin { get { return pad != null && pad.Length > 0 ? pad[0] : 0; } }
 	}
 	
 }

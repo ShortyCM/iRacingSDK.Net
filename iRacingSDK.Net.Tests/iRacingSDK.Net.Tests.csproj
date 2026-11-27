@@ -74,6 +74,7 @@
     <Reference Include="System" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="DataFeed\SharedMemoryTests.cs" />
     <Compile Include="DataFeed\Telemetry\TelemetryCamCarTests.cs" />
     <Compile Include="DataSampleExtensions\VerifyReplayFrame.cs" />
     <Compile Include="DataSampleExtensions\ForwardOnly.cs" />

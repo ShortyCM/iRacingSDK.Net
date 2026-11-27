@@ -19,11 +19,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using Win32.Synchronization;
-using System.Runtime.InteropServices;
-using System.IO.MemoryMappedFiles;
 using System.Diagnostics;
-using iRacingSDK;
 using iRacingSDK.Support;
 
 namespace iRacingSDK
@@ -34,10 +30,10 @@ namespace iRacingSDK
         readonly CrossThreadEvents disconnected = new CrossThreadEvents();
         readonly CrossThreadEvents<DataSample> newSessionData = new CrossThreadEvents<DataSample>();
         
-        DataFeed dataFeed = null;
-        bool isRunning = false;
-        iRacingMemory iRacingMemory;
-        internal bool IsRunning { get { return isRunning; } }
+        static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(30);
+        readonly iRacingMemory iRacingMemory;
+        int isRunning;
+        internal bool IsRunning { get { return Volatile.Read(ref isRunning) != 0; } }
 
         long processingTime;
         public long ProcessingTime { get { return processingTime * 1000000L / Stopwatch.Frequency; } }
@@ -72,10 +68,15 @@ namespace iRacingSDK
         }
 
         public iRacingConnection()
+            : this(new iRacingMemory())
         {
+        }
+
+        internal iRacingConnection(iRacingMemory memory)
+        {
+            this.iRacingMemory = memory;
             this.Replay = new Replay(this);
             this.PitCommand = new PitCommand();
-            this.iRacingMemory = new iRacingMemory();
         }
 
         public IEnumerable<DataSample> GetDataFeed(bool logging = true)
@@ -85,36 +86,39 @@ namespace iRacingSDK
 
         internal IEnumerable<DataSample> GetRawDataFeed(bool logging = true)
         {
-            if (isRunning)
+            if (Interlocked.CompareExchange(ref isRunning, 1, 0) != 0)
                 throw new Exception("Can not call GetDataFeed concurrently.");
 
-            isRunning = true;
             try
             {
-                foreach (var notConnectedSample in WaitForInitialConnection())
+                while (true)
                 {
-                    IsConnected = false;
-                    yield return notConnectedSample;
-                }
+                    foreach (var notConnectedSample in WaitForInitialConnection())
+                    {
+                        IsConnected = false;
+                        yield return notConnectedSample;
+                    }
 
-                foreach (var sample in AllSamples(logging))
-                {
-                    IsConnected = sample.IsConnected;
-                    yield return sample;
+                    foreach (var sample in AllSamples(logging))
+                    {
+                        IsConnected = sample.IsConnected;
+                        yield return sample;
+                    }
                 }
             }
             finally
             {
-                isRunning = false;
+                iRacingMemory.Dispose();
+                Volatile.Write(ref isRunning, 0);
             }
         }
 
         IEnumerable<DataSample> WaitForInitialConnection()
         {
-            bool wasConnected = iRacingMemory.Accessor != null;
+            bool wasConnected = IsConnected;
             TraceInfo.WriteLineIf(!wasConnected, "Waiting to connect to iRacing application");
 
-            while (!iRacingMemory.IsConnected())
+            while (!iRacingMemory.TryOpen())
             {
                 yield return DataSample.YetToConnected;
                 Thread.Sleep(10);
@@ -125,44 +129,50 @@ namespace iRacingSDK
 
         IEnumerable<DataSample> AllSamples(bool logging)
         {
-            if (dataFeed == null)
-                dataFeed = new DataFeed(iRacingMemory.Accessor);
-
+            var dataFeed = new DataFeed(iRacingMemory.Accessor);
+            int? lastTickCount = null;
             var nextTickCount = 0;
-            var lastTickTime = DateTime.Now;
-
-            var watchProcessingTime = new Stopwatch();
-            var watchWaitingTime = new Stopwatch();
+            var timeSinceLastTick = Stopwatch.StartNew();
+            var timer = new Stopwatch();
 
             while (true)
             {
-                watchWaitingTime.Restart();
-                iRacingMemory.WaitForData();
-                waitingTime = watchWaitingTime.ElapsedTicks;
-
-                watchProcessingTime.Restart();
-
+                timer.Restart();
                 var data = dataFeed.GetNextDataSample(nextTickCount, logging);
-                if (data != null)
+                processingTime = timer.ElapsedTicks;
+
+                if (data != null && data.IsConnected && data.Telemetry.TickCount != lastTickCount)
                 {
-                    if (data.IsConnected)
-                    {
-                        if (data.Telemetry.TickCount == nextTickCount - 1)
-                            continue; //Got the same sample - try again.
+                    var tickCount = data.Telemetry.TickCount;
+                    if (logging && lastTickCount.HasValue && tickCount > nextTickCount)
+                        TraceWarning.WriteLine("Dropped telemetry ticks from {0} to {1}.", nextTickCount, tickCount - 1);
 
-                        if (logging && data.Telemetry.TickCount != nextTickCount && nextTickCount != 0)
-                            Debug.WriteLine("Dropped DataSample from {0} to {1}. Over time of {2}",
-                                nextTickCount, data.Telemetry.TickCount - 1, (DateTime.Now - lastTickTime).ToString(@"s\.fff"), "WARN");
-
-                        nextTickCount = data.Telemetry.TickCount + 1;
-                        lastTickTime = DateTime.Now;
-                    }
-                    processingTime = watchProcessingTime.ElapsedTicks;
-
-                    watchProcessingTime.Restart();
+                    lastTickCount = tickCount;
+                    nextTickCount = unchecked(tickCount + 1);
+                    timeSinceLastTick.Restart();
+                    timer.Restart();
                     yield return data;
-                    yieldTime = watchProcessingTime.ElapsedTicks;
+                    yieldTime = timer.ElapsedTicks;
+                    continue;
                 }
+
+                if (timeSinceLastTick.Elapsed >= ConnectionTimeout)
+                {
+                    iRacingMemory.Dispose();
+                    yield return DataSample.YetToConnected;
+                    yield break;
+                }
+
+                if (data != null && !data.IsConnected)
+                {
+                    lastTickCount = null;
+                    nextTickCount = 0;
+                    yield return data;
+                }
+
+                timer.Restart();
+                iRacingMemory.WaitForData();
+                waitingTime = timer.ElapsedTicks;
             }
         }
     }

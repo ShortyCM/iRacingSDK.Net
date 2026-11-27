@@ -31,6 +31,7 @@ namespace iRacingSDK
 
         public partial class _WeekendInfo
         {
+            public string Encoding { get; set; }
             public string TrackName { get; set; }
             public long TrackID { get; set; }
             public string TrackLength { get; set; }

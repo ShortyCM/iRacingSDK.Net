@@ -40,9 +40,13 @@ namespace iRacingSDK
 		public int bufLen;
 		[MarshalAs(UnmanagedType.ByValArray, SizeConst = 2)]
 		public int[] pad1;
-		//128 bytes: offset = 48
+		//64 bytes: offset = 48
 		[MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
 		public VarBuf[] varBuf;
+
+		// The current SDK uses the old padding slots without changing the wire layout.
+		internal int CurrentBufferTickCount { get { return pad1 != null && pad1.Length > 0 ? pad1[0] : 0; } }
+		internal int CurrentBufferIndex { get { return pad1 != null && pad1.Length > 1 ? pad1[1] & 0xff : 0; } }
 	}
 	
 }

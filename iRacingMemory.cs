@@ -18,65 +18,93 @@
 
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using Win32.Synchronization;
 
 namespace iRacingSDK
 {
-    class iRacingMemory
+    class iRacingMemory : IDisposable
     {
+        readonly string mappingName;
+        readonly string eventName;
         public MemoryMappedViewAccessor Accessor { get; private set; }
-        IntPtr dataValidEvent;
+        SafeWaitHandle dataValidEvent;
         MemoryMappedFile irsdkMappedMemory;
 
-        public bool IsConnected()
+        public iRacingMemory(string mappingName = "Local\\IRSDKMemMapFileName", string eventName = "Local\\IRSDKDataValidEvent")
+        {
+            this.mappingName = mappingName;
+            this.eventName = eventName;
+        }
+
+        public bool TryOpen()
         {
             if (Accessor != null)
                 return true;
 
-            var dataValidEvent = Event.OpenEvent(Event.EVENT_ALL_ACCESS | Event.EVENT_MODIFY_STATE, false, "Local\\IRSDKDataValidEvent");
-            if (dataValidEvent == IntPtr.Zero)
+            var handle = Event.OpenEvent(Event.SYNCHRONIZE, false, eventName);
+            if (handle.IsInvalid)
             {
                 var lastError = Marshal.GetLastWin32Error();
-                if (lastError == Event.ERROR_FILE_NOT_FOUND)
-                    return false;
-
-                Trace.WriteLine(string.Format("Unable to open event Local\\IRSDKDataValidEvent - Error Code {0}", lastError), "DEBUG");
+                handle.Dispose();
+                if (lastError != Event.ERROR_FILE_NOT_FOUND)
+                    Trace.WriteLine(string.Format("Unable to open event {0} - Error Code {1}", eventName, lastError), "DEBUG");
                 return false;
             }
 
-            MemoryMappedFile irsdkMappedMemory = null;
+            MemoryMappedFile mapping = null;
             try
             {
-                irsdkMappedMemory = MemoryMappedFile.OpenExisting("Local\\IRSDKMemMapFileName");
+                mapping = MemoryMappedFile.OpenExisting(mappingName, MemoryMappedFileRights.Read);
+                Accessor = mapping.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
+                irsdkMappedMemory = mapping;
+                dataValidEvent = handle;
+                return true;
             }
-            catch (Exception e)
+            catch (FileNotFoundException)
             {
-                Trace.WriteLine("Error accessing shared memory", "DEBUG");
+                return false;
+            }
+            catch (IOException e)
+            {
                 Trace.WriteLine(e.Message, "DEBUG");
-            }
-
-            if (irsdkMappedMemory == null)
                 return false;
-
-            var accessor = irsdkMappedMemory.CreateViewAccessor();
-            if (accessor == null)
+            }
+            catch (UnauthorizedAccessException e)
             {
-                irsdkMappedMemory.Dispose();
-                Trace.WriteLine("Unable to Create View into shared memory", "DEBUG");
+                Trace.WriteLine(e.Message, "DEBUG");
                 return false;
             }
-
-            this.irsdkMappedMemory = irsdkMappedMemory;
-            this.dataValidEvent = dataValidEvent;
-            Accessor = accessor;
-            return true;
+            finally
+            {
+                if (Accessor == null)
+                {
+                    if (mapping != null)
+                        mapping.Dispose();
+                    handle.Dispose();
+                }
+            }
         }
 
-        public bool WaitForData()
+        public void WaitForData()
         {
-            return Event.WaitForSingleObject(dataValidEvent, 17) == 0;
+            Event.WaitForSingleObject(dataValidEvent, 17);
+        }
+
+        public void Dispose()
+        {
+            if (Accessor == null)
+                return;
+
+            Accessor.Dispose();
+            irsdkMappedMemory.Dispose();
+            dataValidEvent.Dispose();
+            Accessor = null;
+            irsdkMappedMemory = null;
+            dataValidEvent = null;
         }
     }
 }

@@ -110,6 +110,19 @@ namespace iRacingSDK
 
         public Dictionary<string, string> Descriptions { get; internal set; }
 
+        /// <summary>The number of telemetry updates per second reported by iRacing.</summary>
+        public int TickRate { get; internal set; }
+
+        static readonly IReadOnlyCollection<string> EmptyTimeSeriesVariables = Array.AsReadOnly(Array.Empty<string>());
+        IReadOnlyCollection<string> timeSeriesVariables = EmptyTimeSeriesVariables;
+
+        /// <summary>Variables whose elements represent successive times in the same telemetry row.</summary>
+        public IReadOnlyCollection<string> TimeSeriesVariables
+        {
+            get { return timeSeriesVariables; }
+            internal set { timeSeriesVariables = value; }
+        }
+
         public override string ToString()
         {
             var result = new StringBuilder();

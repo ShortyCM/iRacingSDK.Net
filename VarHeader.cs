@@ -35,8 +35,10 @@ namespace iRacingSDK
 		public int offset;
 		//offset = 8
 		public int count;
-		[MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)]
-		public int[] pad;
+		[MarshalAs(UnmanagedType.I1)]
+		public bool countAsTime;
+		[MarshalAs(UnmanagedType.ByValArray, SizeConst = 3)]
+		public byte[] pad;
 		//32 bytes: offset = 16
 		[MarshalAs(UnmanagedType.ByValTStr, SizeConst = Defines.MaxString)]
 		public string name;

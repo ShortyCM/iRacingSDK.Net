@@ -45,5 +45,24 @@ namespace iRacingSDK
         {
             Assert.Throws(Is.TypeOf<Exception>().And.Message.EqualTo("Attempt to load car details for unknown carIndex.  carIdx: 5, maxNumber: 0"), () => { var a = telemetry.Cars[5]; });
         }
+
+        [Test]
+        public void ShouldReadPitRoadStatusForEachCar()
+        {
+            telemetry.SessionData.DriverInfo.Drivers = new[]
+            {
+                driver, new SessionData._DriverInfo._Drivers { CarIdx = 1, CarNumberRaw = 2 }
+            };
+            telemetry.Add("OnPitRoad", false);
+            telemetry.Add("CarIdxOnPitRoad", new[] { false, true });
+
+            Assert.That(telemetry.Cars[0].Details.IsOnPitRoad, Is.False);
+            Assert.That(telemetry.Cars[1].Details.IsOnPitRoad, Is.True);
+
+            telemetry.Remove("CarIdxOnPitRoad");
+            telemetry["OnPitRoad"] = true;
+            Assert.That(telemetry.Cars[0].Details.IsOnPitRoad, Is.True);
+            Assert.That(telemetry.Cars[1].Details.IsOnPitRoad, Is.False);
+        }
     }
 }

@@ -128,6 +128,7 @@ namespace iRacingSDK
                     {
                         isConnected = false;
                         isDisconnected = true;
+                        lastSessionInfoUpdate = -1;
                         disconnected.Invoke();
                     }
 

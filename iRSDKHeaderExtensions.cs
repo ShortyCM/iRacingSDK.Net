@@ -17,12 +17,6 @@
 // along with iRacingSDK.  If not, see <http://www.gnu.org/licenses/>.
 
 using System;
-using System.IO.MemoryMappedFiles;
-using System.Runtime.InteropServices;
-using System.Collections.Generic;
-using System.Threading;
-using System.Linq;
-using Win32.Synchronization;
 
 namespace iRacingSDK
 {
@@ -30,29 +24,63 @@ namespace iRacingSDK
     {
         public static bool HasChangedSinceReading(this iRSDKHeader header, VarBufWithIndex buf)
         {
-            return header.varBuf[buf.index].tickCount != buf.tickCount;
+            if (buf.index < 0 || buf.index >= BufferCount(header))
+                return true;
+
+            var current = header.varBuf[buf.index];
+            return current.tickCount != buf.tickCount || current.bufOffset != buf.bufOffset
+                || (UsesWriteMarkers(header) && current.TickCountBegin != buf.tickCount);
         }
 
         public static VarBufWithIndex FindLatestBuf(this iRSDKHeader header, int requestedTickCount)
         {
-            VarBuf maxBuf = new VarBuf();
+            var count = BufferCount(header);
             int maxIndex = -1;
 
-            for (var i = 0; i < header.numBuf; i++)
+            for (var i = 0; i < count; i++)
             {
                 var b = header.varBuf[i];
 
                 if (b.tickCount == requestedTickCount)
-                    return new VarBufWithIndex() { tickCount = requestedTickCount, bufOffset = b.bufOffset, index = i };
+                    return AtIndex(header, i);
 
-                if (b.tickCount > maxBuf.tickCount)
-                {
-                    maxBuf = b;
+                if (maxIndex < 0 || b.tickCount > header.varBuf[maxIndex].tickCount)
                     maxIndex = i;
-                }
             }
 
-            return new VarBufWithIndex() { tickCount = maxBuf.tickCount, bufOffset = maxBuf.bufOffset, index = maxIndex };
+            var current = header.CurrentBufferIndex;
+            if (current < count && UsesWriteMarkers(header)
+                && header.varBuf[current].tickCount == header.CurrentBufferTickCount)
+                return AtIndex(header, current);
+
+            return maxIndex == -1
+                ? new VarBufWithIndex { index = -1 }
+                : AtIndex(header, maxIndex);
+        }
+
+        static int BufferCount(iRSDKHeader header)
+        {
+            return Math.Min(header.numBuf, header.varBuf == null ? 0 : header.varBuf.Length);
+        }
+
+        static bool UsesWriteMarkers(iRSDKHeader header)
+        {
+            // Legacy producers leave these slots zeroed. The 1.20 sample writer
+            // populates them even with header version 1.
+            if (header.CurrentBufferTickCount != 0 || header.CurrentBufferIndex != 0)
+                return true;
+
+            for (var i = 0; i < BufferCount(header); i++)
+                if (header.varBuf[i].TickCountBegin != 0)
+                    return true;
+
+            return false;
+        }
+
+        static VarBufWithIndex AtIndex(iRSDKHeader header, int index)
+        {
+            var buffer = header.varBuf[index];
+            return new VarBufWithIndex { index = index, tickCount = buffer.tickCount, bufOffset = buffer.bufOffset };
         }
     }
 }

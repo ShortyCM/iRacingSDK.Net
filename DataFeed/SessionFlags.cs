@@ -47,6 +47,7 @@ namespace iRacingSDK
         servicible = 0x00040000, // car is allowed service (not a flag)
         furled = 0x00080000,
         repair = 0x00100000,
+        dqScoringInvalid = 0x00200000,
 
         // start lights
         startHidden = 0x10000000,

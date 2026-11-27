@@ -43,7 +43,22 @@ namespace iRacingSDK
         public short CarNumberRaw { get { return driver == null ? (short)-1 : (short)driver.CarNumberRaw; } }
         public string UserName { get { return driver == null ? "Unknown" : driver.UserName; } }
         public bool IsPaceCar { get { return carIdx == 0; } }
-        public bool IsOnPitRoad { get { return telemetry.OnPitRoad; } }
+        public bool IsOnPitRoad
+        {
+            get
+            {
+                object value;
+                if (telemetry.TryGetValue("CarIdxOnPitRoad", out value))
+                {
+                    var pitRoad = value as bool[];
+                    if (pitRoad != null && carIdx < pitRoad.Length)
+                        return pitRoad[carIdx];
+                }
+
+                return telemetry.SessionData.DriverInfo.DriverCarIdx == carIdx
+                    && telemetry.TryGetValue("OnPitRoad", out value) && value is bool && (bool)value;
+            }
+        }
         
 
         public Car Car(DataSample data)
