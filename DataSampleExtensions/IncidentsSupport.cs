@@ -20,18 +20,15 @@ using iRacingSDK.Support;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 
 namespace iRacingSDK
 {
     public static class IncidentsSupport
     {
         /// <summary>
-        /// Pauses the game and then uses the 'toNext' Action to send a message to the game to advance through all incidents
-        /// Returns a list of DataSamples for each frame of each incident
+        /// Pauses the replay and seeks forward through incident markers, collecting one sample per incident.
         /// </summary>
         /// <param name="samples"></param>
-        /// <param name="toNext">A function to that sends ither move to next incident or move to previous incident</param>
         /// <param name="sampleScanSettle">The number of samples to take, which must all have the same frame number - to identify that iRacing has paused.</param>
         /// <param name="maxTotalIncidents">an optional hard limit on the total number of incidents that can be returned.</param>
         /// <returns>DataSamples of each incident</returns>
@@ -43,81 +40,81 @@ namespace iRacingSDK
             iRacing.Replay.SetSpeed(0);
             iRacing.Replay.Wait();
 
-            return samples.PositionsOf(sampleScanSettle).Take(maxTotalIncidents).ToList();
+            var replay = iRacing.Replay.NoWait;
+            return FindIncidents(samples, sampleScanSettle, maxTotalIncidents,
+                carNumber => replay.CameraOnDriver(carNumber, 0), replay.MoveToNextIncident);
         }
 
-        enum states {Continue, RequestPaceCar, RequestNextIncident, Yield, Break };
-
-    /// <summary>
-    /// Assumes the game is in paused mode
-    /// Filters the samples to just single frame numbers, that the game moves after invoking the moveReplay action (eg: which sends message to the game - MoveToNextIncident)
-    /// If the game does not advance to another frame within about 1second, it will stop enumerating
-    /// </summary>
-    /// <param name="samples"></param>
-    /// <param name="moveReplay"></param>
-    /// <param name="sampleScanSettle">The number of samples to take, which must all have the same frame number - to identify that iRacing has paused.</param>
-    /// <returns></returns>
-    static IEnumerable<DataSample> PositionsOf(this IEnumerable<DataSample> samples, int sampleScanSettle)
+        internal static List<DataSample> FindIncidents(IEnumerable<DataSample> samples, int sampleScanSettle,
+            int maxTotalIncidents, Action<short> selectCamera, Action nextIncident)
         {
-            var lastSamples = new List<int>();
-            var lastFrameNumber = -2;
+            return PositionsOf(samples, Math.Max(2, sampleScanSettle), selectCamera, nextIncident)
+                .Take(maxTotalIncidents).ToList();
+        }
 
-            Func<DataSample, states> waitForMessage = ignored => states.RequestPaceCar;
-            foreach (var dx in samples)
+        private static IEnumerable<DataSample> PositionsOf(IEnumerable<DataSample> samples, int sampleScanSettle,
+            Action<short> selectCamera, Action nextIncident)
+        {
+            using (var feed = samples.GetEnumerator())
             {
-                switch(waitForMessage(dx) )
+                while (feed.MoveNext() && feed.Current.IsConnected)
                 {
-                    case states.Continue:
-                        break;
-
-                    case states.RequestPaceCar:
-                        iRacing.Replay.NoWait.CameraOnDriver(0, 0);
-                        waitForMessage = d => d.Telemetry.CamCarIdx == 0 ? states.RequestNextIncident : states.Continue;
-                        break;
-
-                    case states.RequestNextIncident:
-                        iRacing.Replay.NoWait.MoveToNextIncident();
-                        waitForMessage = d =>
+                    var sample = feed.Current;
+                    var paceCar = sample.SessionData.DriverInfo.PaceCar;
+                    var tickRate = Math.Max(60, sample.Telemetry.TickRate);
+                    if (paceCar != null && sample.Telemetry.CamCarIdx != paceCar.CarIdx)
+                    {
+                        selectCamera((short)paceCar.CarNumberRaw);
+                        var cameraWait = 2 * tickRate;
+                        while (cameraWait-- > 0 && sample.Telemetry.CamCarIdx != paceCar.CarIdx)
                         {
-                            lastSamples.Add(d.Telemetry.ReplayFrameNum);
+                            if (!feed.MoveNext() || !feed.Current.IsConnected)
+                                yield break;
+                            sample = feed.Current;
+                        }
+                        if (sample.Telemetry.CamCarIdx != paceCar.CarIdx)
+                            TraceWarning.WriteLine("Pace-car camera did not respond. Searching for the next incident from the current camera.");
+                    }
 
-                            if (lastSamples.Count == sampleScanSettle)
-                                lastSamples.RemoveAt(0);
+                    var startFrame = sample.Telemetry.ReplayFrameNum;
+                    var lastFrame = startFrame;
+                    var lastCamera = sample.Telemetry.CamCarIdx;
+                    var settled = 0;
+                    var seekWait = Math.Max(5 * tickRate, 2 * sampleScanSettle);
+                    nextIncident();
+                    while (settled < sampleScanSettle && seekWait-- > 0)
+                    {
+                        if (!feed.MoveNext() || !feed.Current.IsConnected)
+                            yield break;
+                        sample = feed.Current;
+                        var frame = sample.Telemetry.ReplayFrameNum;
+                        var camera = sample.Telemetry.CamCarIdx;
+                        settled = frame <= startFrame ? 0 : frame == lastFrame && camera == lastCamera ? settled + 1 : 1;
+                        lastFrame = frame;
+                        lastCamera = camera;
+                    }
 
-                            if (lastSamples.Count == (sampleScanSettle - 1) && lastSamples.All(f => f == d.Telemetry.ReplayFrameNum))
-                            {
-                                if (d.Telemetry.ReplayFrameNum == lastFrameNumber)
-                                {
-                                    TraceDebug.WriteLine("Incidents: Frame number did not change - asuming no more incidents.  Current Frame: {0}", d.Telemetry.ReplayFrameNum);
-                                    return states.Break;
-                                }
-
-                                if (d.Telemetry.CamCarIdx == 0) //Pace Car
-                                {
-                                    TraceWarning.WriteLine("Incident scan aborted - iRacing has not progressed to incident.  Frame Number: {0}", d.Telemetry.ReplayFrameNum);
-                                    return states.Break;
-                                }
-
-                                lastFrameNumber = d.Telemetry.ReplayFrameNum;
-                                TraceDebug.WriteLine("Incidents: last {0} samples have settled on frame number {1}", sampleScanSettle, d.Telemetry.ReplayFrameNum);
-
-                                lastSamples.Add(-1);
-                                lastSamples.RemoveAt(0);
-                                return states.Yield;
-                            };
-
-                            return states.Continue;
-                        };
-                        break;
-
-                    case states.Yield:
-                        yield return dx;
-                        waitForMessage = ignored => states.RequestPaceCar;
-                        break;
-
-                    case states.Break:
+                    if (settled < sampleScanSettle)
+                    {
+                        if (lastFrame <= startFrame)
+                            TraceDebug.WriteLine("No further incident marker was found after frame {0}.", startFrame);
+                        else
+                            TraceWarning.WriteLine("Incident scan stopped because the replay did not settle after the seek.");
                         yield break;
+                    }
+                    if (paceCar != null && lastCamera == paceCar.CarIdx)
+                    {
+                        TraceDebug.WriteLine("Skipping the pace-car incident marker at frame {0}.", lastFrame);
+                        continue;
+                    }
+                    if (!sample.SessionData.DriverInfo.Drivers.Any(driver => driver.CarIdx == lastCamera && driver.IsRaceDriver))
+                    {
+                        TraceDebug.WriteLine("Skipping the incident marker at frame {0} without a race car in view.", lastFrame);
+                        continue;
+                    }
 
+                    TraceDebug.WriteLine("Incident scan settled on frame {0}", lastFrame);
+                    yield return sample;
                 }
             }
         }

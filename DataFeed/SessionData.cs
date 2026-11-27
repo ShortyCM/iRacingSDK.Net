@@ -44,8 +44,14 @@ namespace iRacingSDK
         {
             public partial class _Drivers
             {
-                public bool IsPaceCar { get { return this.CarIdx == 0; } }
+                public bool IsPaceCar { get { return CarIsPaceCar != 0; } }
+                internal bool IsRaceDriver
+                {
+                    get { return !IsPaceCar && IsSpectator == 0 && (CarNumberRaw > 0 || !string.IsNullOrEmpty(CarNumber)); }
+                }
             }
+
+            internal _Drivers PaceCar { get { return Drivers == null ? null : Drivers.FirstOrDefault(driver => driver.IsPaceCar); } }
 
             _Drivers[] competingDrivers = null;
 
@@ -59,7 +65,7 @@ namespace iRacingSDK
                     competingDrivers = new _Drivers[this.Drivers.MaxLength()];
 
                     foreach (var d in this.Drivers)
-                        if( d.CarIdx < competingDrivers.Length)
+                        if (d.CarIdx >= 0 && d.CarIdx < competingDrivers.Length)
                             competingDrivers[d.CarIdx] = d;
 
                     for (var i = 0; i < competingDrivers.Length; i++)
@@ -107,7 +113,7 @@ namespace iRacingSDK
 
         public static int MaxLength(this SessionData._DriverInfo._Drivers[] self)
         {
-            return (int)self.Where(d => d.CarNumberRaw > 0).Max(d => d.CarIdx) + 1;
+            return (int)self.Where(d => d.IsRaceDriver && d.CarIdx >= 0).Select(d => d.CarIdx).DefaultIfEmpty(-1).Max() + 1;
         }
     }
 }

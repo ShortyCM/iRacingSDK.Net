@@ -30,10 +30,15 @@ namespace iRacingSDK
         readonly SessionData._DriverInfo._Drivers driver;
 
         public CarDetails(Telemetry telemetry, int carIdx)
+            : this(telemetry, carIdx, telemetry.SessionData.DriverInfo.CompetingDrivers[carIdx])
+        {
+        }
+
+        internal CarDetails(Telemetry telemetry, int carIdx, SessionData._DriverInfo._Drivers driver)
         {
             this.telemetry = telemetry;
             this.carIdx = carIdx;
-            this.driver = telemetry.SessionData.DriverInfo.CompetingDrivers[carIdx];
+            this.driver = driver;
         }
 
         public int Index { get { return carIdx; } }
@@ -42,7 +47,7 @@ namespace iRacingSDK
         public string CarNumberDisplay { get { return driver == null ? "" : driver.CarNumber; } }
         public short CarNumberRaw { get { return driver == null ? (short)-1 : (short)driver.CarNumberRaw; } }
         public string UserName { get { return driver == null ? "Unknown" : driver.UserName; } }
-        public bool IsPaceCar { get { return carIdx == 0; } }
+        public bool IsPaceCar { get { return driver != null && driver.IsPaceCar; } }
         public bool IsOnPitRoad
         {
             get
@@ -75,11 +80,16 @@ namespace iRacingSDK
         public readonly CarDetails Details;
 
         public Car(Telemetry telemetry, int carIdx)
+            : this(telemetry, carIdx, telemetry.SessionData.DriverInfo.CompetingDrivers[carIdx])
+        {
+        }
+
+        internal Car(Telemetry telemetry, int carIdx, SessionData._DriverInfo._Drivers driver)
         {
             this.telemetry = telemetry;
             this.carIdx = carIdx;
-            this.driver = telemetry.SessionData.DriverInfo.CompetingDrivers[carIdx];
-            this.Details = new CarDetails(telemetry, carIdx);
+            this.driver = driver;
+            this.Details = new CarDetails(telemetry, carIdx, driver);
         }
 
         public int Index { get { return carIdx; } }

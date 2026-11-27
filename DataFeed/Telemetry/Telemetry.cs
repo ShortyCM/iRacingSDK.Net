@@ -26,7 +26,8 @@ namespace iRacingSDK
 {
     public class CarArray : IEnumerable<Car>
     {
-        Car[] cars;
+        readonly Car[] cars;
+        readonly Car paceCar;
         
         public CarArray(Telemetry telemetry)
         {
@@ -36,12 +37,19 @@ namespace iRacingSDK
 
             for (var i = 0; i < drivers.Length; i++)
                 cars[i] = new Car(telemetry, i);
+
+            var paceDriver = telemetry.SessionData.DriverInfo.PaceCar;
+            if (paceDriver != null && paceDriver.CarIdx >= cars.Length)
+                paceCar = new Car(telemetry, (int)paceDriver.CarIdx, paceDriver);
         }
 
         public Car this[long carIdx]
         {
             get
             {
+                if (paceCar != null && paceCar.CarIdx == carIdx)
+                    return paceCar;
+
                 if (carIdx < 0)
                     throw new Exception("Attempt to load car details for negative car index {0}".F(carIdx));
 
@@ -96,7 +104,7 @@ namespace iRacingSDK
         {
             get
             {
-                return Cars.Where(c => !c.Details.IsPaceCar);
+                return Cars.Where(c => c.Details.Driver.IsRaceDriver);
             }
         }
 
@@ -104,7 +112,9 @@ namespace iRacingSDK
         {
             get
             {
-                return this.CarIdxTrackSurface[0] == TrackLocation.OnTrack;
+                var paceCar = SessionData.DriverInfo.PaceCar;
+                return paceCar != null && paceCar.CarIdx >= 0 && paceCar.CarIdx < CarIdxTrackSurface.Length
+                    && CarIdxTrackSurface[paceCar.CarIdx] == TrackLocation.OnTrack;
             }
         }
 

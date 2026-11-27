@@ -32,29 +32,21 @@ namespace iRacingSDK
                 if (positions != null)
                     return positions;
 
-                positions = new int[64];
+                var drivers = SessionData.DriverInfo.CompetingDrivers;
+                var distances = CarIdxDistance;
+                object reported;
+                TryGetValue("CarIdxPosition", out reported);
+                var official = reported as int[] ?? new int[0];
 
-                var runningOrder = CarIdxDistance
-                    .Select((d, idx) => new { CarIdx = idx, Distance = d })
-                    .Where(d => d.Distance > 0)
-                    .Where(c => c.CarIdx != 0)
-                    .OrderByDescending(c => c.Distance)
-                    .Select((c, order) => new { CarIdx = c.CarIdx, Position = order + 1, Distance = c.Distance})
-                    .ToList();
+                var runningOrder = Enumerable.Range(0, drivers.Length)
+                    .Where(index => drivers[index].IsRaceDriver)
+                    .OrderByDescending(index => index < distances.Length && distances[index] > 0 ? distances[index] : 0)
+                    .ThenBy(index => index < official.Length && official[index] > 0 ? official[index] : int.MaxValue);
 
-                var maxRunningOrderIndex = runningOrder.Count == 0 ? 0 : runningOrder.Max(ro => ro.CarIdx);
-                var maxSessionIndex = this.SessionData.DriverInfo.CompetingDrivers.Length;
-
-                positions = new int[ Math.Max(maxRunningOrderIndex, maxSessionIndex)+1 ];
-
-                positions[0] = int.MaxValue;
-                foreach( var runner in runningOrder )
-                    positions[runner.CarIdx] = runner.Position;
-
-                var lastKnownPosition = (runningOrder.Count == 0 ? 0 : runningOrder.Max(ro => ro.Position)) + 1;
-                for (var i = 0; i < positions.Length; i++)
-                    if (positions[i] == 0)
-                        positions[i] = lastKnownPosition++;
+                positions = Enumerable.Repeat(int.MaxValue, Math.Max(drivers.Length, distances.Length)).ToArray();
+                var position = 1;
+                foreach (var index in runningOrder)
+                    positions[index] = position++;
 
                 return positions;
             }
