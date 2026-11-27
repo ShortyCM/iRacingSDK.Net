@@ -63,9 +63,14 @@ namespace iRacingSDK
         static void ApplyHasSeenCheckeredFlag(DataSample data, bool[] hasSeenCheckeredFlag)
         {
             if (data.LastSample != null && data.Telemetry.LeaderHasFinished)
-                for (int i = 1; i < data.SessionData.DriverInfo.CompetingDrivers.Length; i++)
-                    if (data.LastSample.Telemetry.CarIdxLapDistPct[i] > 0.90 && data.Telemetry.CarIdxLapDistPct[i] < 0.10)
+            {
+                var drivers = data.SessionData.DriverInfo.CompetingDrivers;
+                var previousDistance = data.LastSample.Telemetry.CarIdxLapDistPct;
+                var distance = data.Telemetry.CarIdxLapDistPct;
+                for (int i = 0; i < drivers.Length; i++)
+                    if (drivers[i].IsRaceDriver && previousDistance[i] > 0.90 && distance[i] >= 0 && distance[i] < 0.10)
                         hasSeenCheckeredFlag[i] = true;
+            }
 
             data.Telemetry.HasSeenCheckeredFlag = hasSeenCheckeredFlag;
         }
@@ -77,9 +82,10 @@ namespace iRacingSDK
             if (!(new[] { SessionState.Racing, SessionState.Checkered, SessionState.CoolDown }).Contains(data.Telemetry.SessionState))
                 return;
 
-            for (int i = 1; i < data.SessionData.DriverInfo.CompetingDrivers.Length; i++)
+            var drivers = data.SessionData.DriverInfo.CompetingDrivers;
+            for (int i = 0; i < drivers.Length; i++)
             {
-                if (data.Telemetry.HasSeenCheckeredFlag[i])
+                if (!drivers[i].IsRaceDriver || data.Telemetry.HasSeenCheckeredFlag[i])
                     continue;
 
                 if (data.Telemetry.HasData(i))
