@@ -1,11 +1,10 @@
-SET SolutionDir=%~dp0..\
-SET ProjectDir=%~dp0..\
+@echo off
+setlocal
+set "project=%~dp0..\iRacingSDK.Net.Tests"
 
-msbuild %ProjectDir%iRacingSDK.Net.Tests\iRacingSDK.Net.Tests.csproj ^
-	-p:SolutionDir=%SolutionDir% ^
-	-t:build ^
-	-v:minimal ^
-	-p:Configuration=Debug
+msbuild "%project%\iRacingSDK.Net.Tests.csproj" -restore -v:minimal -p:Configuration=Debug -p:Platform=AnyCPU
+if errorlevel 1 exit /b %errorlevel%
 
-.\..\packages\NUnit.Runners.2.6.3\tools\nunit-console.exe -nodots -nologo -labels ^
-	.\iRacingSDK.Net.Tests\bin\x64\Debug\iRacingSDK.Net.Tests.exe
+"%VSINSTALLDIR%Common7\IDE\Extensions\TestPlatform\vstest.console.exe" ^
+    "%project%\bin\Debug\iRacingSDK.Net.Tests.exe" /Platform:x86 ^
+    "/ResultsDirectory:%project%\bin\Debug\TestResults"
